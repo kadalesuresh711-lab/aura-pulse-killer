@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { writePrompts } from "@/lib/manga.server";
+import { withRun } from "@/lib/kill-switch.server";
 
 const Input = z
   .object({
@@ -18,6 +19,7 @@ const Input = z
       )
       .min(1)
       .max(10_000),
+    runAt: z.number().optional(),
   })
   .refine((value) => value.to >= value.from && value.to - value.from < 60, {
     message: "Prompt range must contain 1 to 60 lines",
@@ -51,7 +53,9 @@ export const Route = createFileRoute("/api/prompts")({
             send("started", { from: input.from, to: input.to });
             const heartbeat = setInterval(() => send("heartbeat", { at: Date.now() }), 10_000);
 
-            void writePrompts(input.bible, input.segments, input.from, input.to)
+            void withRun(input.runAt, () =>
+              writePrompts(input.bible, input.segments, input.from, input.to),
+            )
               .then((prompts) => send("result", { prompts }))
               .catch((error) =>
                 send("failure", {
