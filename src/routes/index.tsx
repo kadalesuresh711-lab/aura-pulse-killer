@@ -1239,6 +1239,20 @@ function Index() {
                 Stop
               </button>
             )}
+
+            {/* Always available: kills this page's work AND anything left
+                running from an earlier tab or a refreshed page. */}
+            <button
+              onClick={() => {
+                setKilling(true);
+                void instaKillAll().finally(() => setKilling(false));
+              }}
+              disabled={killing}
+              title="Stop every generation immediately, including runs left over from a refreshed or closed page"
+              className="border-4 border-foreground bg-destructive px-6 py-3 font-display text-lg font-black uppercase text-destructive-foreground shadow-[6px_6px_0_0_var(--color-foreground)] transition-transform hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[3px_3px_0_0_var(--color-foreground)] disabled:opacity-40"
+            >
+              {killing ? "Killing…" : "⛔ Insta kill"}
+            </button>
           </div>
         </section>
 
