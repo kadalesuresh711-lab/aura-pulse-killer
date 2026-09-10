@@ -1,0 +1,149 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { parseScript } from "./script";
+import { buildCharacterBible, writePrompts, renderPanel } from "./manga.server";
+import { engineStatus } from "./agnes.server";
+import { withRun } from "./kill-switch.server";
+
+const SegmentSchema = z.object({
+  index: z.number(),
+  start: z.number(),
+  end: z.number(),
+  text: z.string(),
+});
+
+export const analyzeScript = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ script: z.string().min(5), runAt: z.number().optional() }).parse(d),
+  )
+  .handler(async ({ data }) =>
+    withRun(data.runAt, async () => {
+    const segments = parseScript(data.script);
+    if (segments.length === 0) {
+      throw new Error("No timestamps found. Each line needs a time like 0:00, (0:00) or [0:00].");
+    }
+    const bible = await buildCharacterBible(data.script);
+    return { segments, bible, engine: engineStatus() };
+    }),
+  );
+
+/**
+ * One storyboard pass.
+ *
+ * The model is handed the ENTIRE script every time (no chunking, no chunk
+ * briefs) and asked for the prompts of one range of line numbers, because the
+ * answer — not the input — is what has a size ceiling. Continuity comes from
+ * the model reading the whole story.
+ */
+export const promptsForRange = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        bible: z.string(),
+        /** 1-based, inclusive. */
+        from: z.number().int().min(1),
+        to: z.number().int().min(1),
+        segments: z.array(SegmentSchema).min(1),
+        runAt: z.number().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) =>
+    withRun(data.runAt, async () => {
+      const prompts = await writePrompts(data.bible, data.segments, data.from, data.to);
+      return { from: data.from, to: data.to, prompts, engine: engineStatus() };
+    }),
+  );
+
+export const renderImage = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        prompt: z.string().min(5),
+        seed: z.number().int(),
+        bible: z.string().optional(),
+        line: z.string().optional(),
+        timestamp: z.string().optional(),
+        slot: z.number().int().min(0).default(0),
+        runAt: z.number().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) =>
+    withRun(data.runAt, async () => {
+    const { url, prompt, rewritten } = await renderPanel(
+      data.prompt,
+      data.seed,
+      data.slot,
+      data.bible,
+      data.line,
+      data.timestamp,
+    );
+    return { url, prompt, rewritten };
+    }),
+  );
+
+/**
+ * Renders several panels in one round trip. Failures are reported per item so
+ * one bad panel never fails the group.
+ */
+export const renderBatch = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        bible: z.string().optional(),
+        jobs: z
+          .array(
+            z.object({
+              index: z.number().int(),
+              prompt: z.string().min(5),
+              seed: z.number().int(),
+              slot: z.number().int().min(0).default(0),
+              line: z.string().optional(),
+              timestamp: z.string().optional(),
+            }),
+          )
+          .min(1)
+          .max(8),
+        runAt: z.number().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) =>
+    withRun(data.runAt, async () => {
+    const t0 = Date.now();
+    const idx = data.jobs.map((j) => j.index).join(",");
+    console.log(`[render] batch START panels ${idx}`);
+    const results = await Promise.all(
+      data.jobs.map(async (job) => {
+        try {
+          // renderPanel retries the FULL prompt across the whole key pool on
+          // fresh seeds; it is never shortened, only softened on a refusal.
+
+          const { url, prompt, rewritten } = await renderPanel(
+            job.prompt,
+            job.seed,
+            job.slot,
+            data.bible,
+            job.line,
+            job.timestamp,
+          );
+          return { index: job.index, url, prompt, rewritten };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`[render] panel ${job.index} failed: ${msg}`);
+          return {
+            index: job.index,
+            url: null as string | null,
+            error: msg,
+          };
+        }
+      }),
+    );
+    const ok = results.filter((r) => r.url).length;
+    console.log(
+      `[render] batch DONE panels ${idx} in ${Date.now() - t0}ms: ${ok}/${results.length} rendered`,
+    );
+    return { results };
+    }),
+  );
