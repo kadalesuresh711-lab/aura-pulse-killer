@@ -331,6 +331,7 @@ function Index() {
   const cancelRef = useRef(false);
   const [retrying, setRetrying] = useState<number[]>([]);
   const [killing, setKilling] = useState(false);
+  const [killMsg, setKillMsg] = useState<string | null>(null);
 
   /**
    * INSTA KILL — stops everything, everywhere.
@@ -343,13 +344,16 @@ function Index() {
   const instaKillAll = useCallback(
     async (announce = true): Promise<number> => {
       cancelRef.current = true;
-      abortTrackedRequests();
+      const local = abortTrackedRequests();
       setRunStamp(0);
       let killedAt = Date.now();
       try {
         const res = await killRuns({});
         killedAt = res.killedAt || killedAt;
         if (announce) {
+          setKillMsg(
+            `Insta Kill done — ${res.aborted + local} request(s) stopped. Nothing is generating now.`,
+          );
           setNote(
             res.aborted > 0
               ? `Insta Kill — ${res.aborted} running request(s) stopped. Nothing is generating now.`
@@ -357,7 +361,10 @@ function Index() {
           );
         }
       } catch {
-        if (announce) setNote("Insta Kill — stopped everything in this page.");
+        if (announce) {
+          setKillMsg("Insta Kill — stopped everything running in this page.");
+          setNote("Insta Kill — stopped everything running in this page.");
+        }
       }
       if (announce) {
         setPhase("idle");
@@ -1262,6 +1269,7 @@ function Index() {
             <button
               onClick={() => {
                 setKilling(true);
+                setKillMsg(null);
                 void instaKillAll().finally(() => setKilling(false));
               }}
               disabled={killing}
@@ -1271,6 +1279,11 @@ function Index() {
               {killing ? "Killing…" : "⛔ Insta kill"}
             </button>
           </div>
+
+          {killMsg && (
+            <p className="mt-3 font-mono text-xs uppercase text-destructive">{killMsg}</p>
+          )}
+          <div className="hidden"></div>
         </section>
 
         {(shots.length > 0 || busy) && (
