@@ -1271,10 +1271,13 @@ export async function generateImage(
   let lastErr = "";
   for (let attempt = 0; attempt < Math.max(1, attempts); attempt++) {
     const key = pickKey(keys, slot, attempt);
+    // A killed run never spends another image credit.
+    assertRunAlive();
+    const gate = killableSignal(IMAGE_REQUEST_TIMEOUT_MS);
     try {
       const res = await fetch(PIXAZO_URL, {
         method: "POST",
-        signal: AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
+        signal: gate.signal,
         headers: {
           "Content-Type": "application/json",
           "Cache-Control": "no-cache",
