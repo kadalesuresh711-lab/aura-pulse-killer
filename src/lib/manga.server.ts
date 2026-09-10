@@ -2,6 +2,7 @@ import type { Segment } from "./script";
 import { pixazoKeys, pickKey } from "./keys.server";
 import { textChat } from "./text-engine.server";
 import { verifyPromptForLine } from "./scene-check.server";
+import { assertRunAlive, killableSignal, KilledError } from "./kill-switch.server";
 
 const PIXAZO_URL = "https://gateway.pixazo.ai/flux-1-schnell/v1/getData";
 // A single provider attempt must settle quickly enough for the browser queue to
@@ -1312,8 +1313,12 @@ export async function generateImage(
       }
       if (lastErr) console.warn(`[pixazo] seed=${seed} attempt ${attempt + 1}: ${lastErr}`);
     } catch (e) {
+      if (e instanceof KilledError) throw e;
       lastErr = e instanceof Error ? e.message : String(e);
       console.warn(`[pixazo] seed=${seed} attempt ${attempt + 1} threw: ${lastErr}`);
+      assertRunAlive();
+    } finally {
+      gate.release();
     }
     await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
   }
