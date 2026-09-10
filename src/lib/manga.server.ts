@@ -199,6 +199,7 @@ export async function buildCharacterBible(script: string): Promise<string> {
     const bible = stripFences(out).slice(0, 4000);
     if (bible.length > 20) return bible;
   } catch (e) {
+    if (e instanceof KilledError) throw e;
     console.error("buildCharacterBible failed, continuing without a bible:", e);
   }
   return "";
@@ -518,6 +519,7 @@ export async function writePrompts(
     absorb(raw, wanted);
     console.log(`[prompts] after main pass ${from}-${to}: ${byNumber.size}/${count} filled`);
   } catch (e) {
+    if (e instanceof KilledError) throw e;
     console.error(
       `[prompts] main pass FAILED ${from}-${to} after ${Date.now() - t0}ms:`,
       e instanceof Error ? e.message : e,
@@ -536,6 +538,7 @@ export async function writePrompts(
         `[prompts] after repair ${from}-${to}: ${byNumber.size}/${count} filled in ${Date.now() - t1}ms`,
       );
     } catch (e) {
+      if (e instanceof KilledError) throw e;
       console.error(
         `[prompts] repair FAILED ${from}-${to} after ${Date.now() - t1}ms:`,
         e instanceof Error ? e.message : e,
@@ -1426,6 +1429,7 @@ export async function renderPanel(
       const url = await generateImage(prompt, seed + round * 1861, slot + round, bible, 1, line);
       return { url, prompt, level: 0, tries, rewritten };
     } catch (e) {
+      if (e instanceof KilledError) throw e;
       const msg = e instanceof Error ? e.message : String(e);
       errors.push(`round ${round + 1}: ${msg}`);
       if (contentRefusal(msg)) refused = true;
@@ -1444,6 +1448,7 @@ export async function renderPanel(
           const url = await generateImage(softened, seed + 5471 + round * 977, slot + round, bible, 1, line);
           return { url, prompt: softened, level: 1, tries, rewritten };
         } catch (e) {
+          if (e instanceof KilledError) throw e;
           errors.push(`softened ${round + 1}: ${e instanceof Error ? e.message : String(e)}`);
         }
         await new Promise((r) => setTimeout(r, 700 * (round + 1)));
