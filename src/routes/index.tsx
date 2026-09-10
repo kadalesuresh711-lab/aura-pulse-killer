@@ -9,6 +9,13 @@ import { isBlankImageUrl } from "@/lib/blank";
 import { loadLatestRun, loadRun, saveRun, type SavedRun } from "@/lib/progress";
 import { recoverInterruptedShots } from "@/lib/run-recovery";
 import { colabHealth, normalizeColabUrl, renderOnColab } from "@/lib/colab";
+import { instaKill } from "@/lib/kill.functions";
+import {
+  abortTrackedRequests,
+  runStampOrUndefined,
+  setRunStamp,
+  trackRequest,
+} from "@/lib/run-token";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -182,12 +189,19 @@ type PromptRequest = {
  * Reads the prompt endpoint's event stream. Heartbeats keep long published
  * requests alive; only the final result event is exposed to the pipeline.
  */
+/** The active run's server stamp, spread into every request body. */
+function stamp(): { runAt?: number } {
+  const runAt = runStampOrUndefined();
+  return runAt ? { runAt } : {};
+}
+
 async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> {
   const label = `${input.from}-${input.to}`;
   const t0 = Date.now();
   let events = 0;
   console.log(`[client] prompts request ${label} started`);
   const controller = new AbortController();
+  const untrack = trackRequest(controller);
   let idleTimer = window.setTimeout(() => controller.abort("Prompt stream stopped responding"), PROMPT_IDLE_TIMEOUT_MS);
   const activity = () => {
     window.clearTimeout(idleTimer);
@@ -198,11 +212,12 @@ async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> 
     response = await fetch("/api/prompts", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, ...stamp() }),
       signal: controller.signal,
     });
   } catch (error) {
     window.clearTimeout(idleTimer);
+    untrack();
     if (controller.signal.aborted) throw new Error("Prompt service stopped responding; this range will retry.");
     throw error;
   }
@@ -254,6 +269,7 @@ async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> 
     frames.forEach(consume);
   }
   window.clearTimeout(idleTimer);
+  untrack();
   if (buffer.trim()) consume(buffer);
   if (failure) {
     console.error(`[client] prompts ${label} FAILED at ${Date.now() - t0}ms: ${failure}`);
@@ -405,7 +421,7 @@ function Index() {
         list = recoverInterruptedShots(existing);
       } else {
         setNote("Reading script and locking character designs…");
-        const res = await analyze({ data: { script: sourceScript } });
+        const res = await analyze({ data: { script: sourceScript, ...stamp() } });
         b = res.bible;
         list = res.segments.map((s) => ({ ...s, status: "waiting" as const }));
       }
@@ -623,6 +639,7 @@ function Index() {
           try {
             const { results } = await drawBatch({
               data: {
+                ...stamp(),
                 bible: b,
                 jobs: group.map((g) => ({
                   index: g.seg.index,
