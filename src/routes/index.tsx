@@ -293,6 +293,7 @@ function Index() {
 
   const draw = useServerFn(renderImage);
   const drawBatch = useServerFn(renderBatch);
+  const killRuns = useServerFn(instaKill);
 
   const [script, setScript] = useState("");
   const [bible, setBible] = useState("");
@@ -321,6 +322,56 @@ function Index() {
   const activeRunRef = useRef<{ key: string; data: SavedRun<Shot> } | null>(null);
   const cancelRef = useRef(false);
   const [retrying, setRetrying] = useState<number[]>([]);
+  const [killing, setKilling] = useState(false);
+
+  /**
+   * INSTA KILL — stops everything, everywhere.
+   *
+   * Work already accepted by the server keeps running after a refresh or a
+   * closed tab, so a fresh run used to compete with the ghost of the old one.
+   * This drops every open browser request AND tells the server to abandon every
+   * run it has accepted so far.
+   */
+  const instaKillAll = useCallback(
+    async (announce = true): Promise<number> => {
+      cancelRef.current = true;
+      abortTrackedRequests();
+      setRunStamp(0);
+      let killedAt = Date.now();
+      try {
+        const res = await killRuns({});
+        killedAt = res.killedAt || killedAt;
+        if (announce) {
+          setNote(
+            res.aborted > 0
+              ? `Insta Kill — ${res.aborted} running request(s) stopped. Nothing is generating now.`
+              : "Insta Kill — nothing is generating now.",
+          );
+        }
+      } catch {
+        if (announce) setNote("Insta Kill — stopped everything in this page.");
+      }
+      if (announce) {
+        setPhase("idle");
+        setError(null);
+        const active = activeRunRef.current;
+        if (active) {
+          const data = { ...active.data, state: "stopped" as const };
+          activeRunRef.current = { key: active.key, data };
+          await saveProgress(active.key, data);
+        }
+      }
+      return killedAt;
+    },
+    [killRuns],
+  );
+
+  /** Kills leftovers from earlier runs, then stamps this run so it survives. */
+  const beginFreshRun = useCallback(async () => {
+    const killedAt = await instaKillAll(false);
+    setRunStamp(killedAt + 1);
+    cancelRef.current = false;
+  }, [instaKillAll]);
 
   shotsRef.current = shots;
 
@@ -409,7 +460,7 @@ function Index() {
     setError(null);
     setVideoUrl(null);
     setSavedTo(null);
-    cancelRef.current = false;
+    await beginFreshRun();
     setPhase("running");
     const key = scriptKey(sourceScript);
     let b = existingBible ?? "";
@@ -668,6 +719,7 @@ function Index() {
                     try {
                       const res = await draw({
                         data: {
+                          ...stamp(),
                           prompt,
                           seed: 1000 + r.index + attempt * 7919,
                           bible: b,
@@ -793,6 +845,7 @@ function Index() {
         try {
           const res = await draw({
             data: {
+              ...stamp(),
               prompt,
               seed: 10_000 + shot.index * 31 + Math.floor(Math.random() * 900_000),
               slot: slotBase + attempt,
@@ -825,6 +878,7 @@ function Index() {
 
   async function retryFailed() {
     const key = scriptKey(script);
+    await beginFreshRun();
     setPhase("running");
     let keyTick = 0;
     let list = shotsRef.current;
