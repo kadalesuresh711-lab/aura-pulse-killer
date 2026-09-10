@@ -105,15 +105,18 @@ async function callAgnes(user: string, opts: ChatOptions): Promise<string> {
 
     for (let attempt = 0; attempt < attempts; attempt++) {
       const started = Date.now();
+      // A killed run never makes another upstream request.
+      assertRunAlive();
       console.log(
         `[agnes] request attempt ${attempt + 1}/${attempts} model=${model()} inChars=${user.length} maxOut=${Math.min(MAX_OUT, opts.maxOutputTokens ?? 16_000)} inFlight=${inFlight}`,
       );
+      const gate = killableSignal(opts.timeoutMs ?? 600_000);
       try {
       const res = await fetch(API, {
         method: "POST",
         // This bounds one broken upstream attempt, not the user's workflow.
         // The caller checkpoints and retries later, so a five-hour run remains unlimited.
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 600_000),
+        signal: gate.signal,
         headers: {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
@@ -166,9 +169,13 @@ async function callAgnes(user: string, opts: ChatOptions): Promise<string> {
         if (res.status === 400 || res.status === 401 || res.status === 403) break;
         await sleep(1_200 * (attempt + 1));
       } catch (e) {
+        if (e instanceof KilledError) throw e;
         lastErr = e instanceof Error ? e.message : String(e);
         console.error(`[agnes] attempt ${attempt + 1} threw after ${Date.now() - started}ms: ${lastErr}`);
+        assertRunAlive();
         await sleep(1_000 * (attempt + 1));
+      } finally {
+        gate.release();
       }
     }
 
