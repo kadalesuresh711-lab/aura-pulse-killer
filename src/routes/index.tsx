@@ -202,10 +202,16 @@ async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> 
   console.log(`[client] prompts request ${label} started`);
   const controller = new AbortController();
   const untrack = trackRequest(controller);
-  let idleTimer = window.setTimeout(() => controller.abort("Prompt stream stopped responding"), PROMPT_IDLE_TIMEOUT_MS);
+  let idleTimer = window.setTimeout(
+    () => controller.abort("Prompt stream stopped responding"),
+    PROMPT_IDLE_TIMEOUT_MS,
+  );
   const activity = () => {
     window.clearTimeout(idleTimer);
-    idleTimer = window.setTimeout(() => controller.abort("Prompt stream stopped responding"), PROMPT_IDLE_TIMEOUT_MS);
+    idleTimer = window.setTimeout(
+      () => controller.abort("Prompt stream stopped responding"),
+      PROMPT_IDLE_TIMEOUT_MS,
+    );
   };
   let response: Response;
   try {
@@ -218,11 +224,14 @@ async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> 
   } catch (error) {
     window.clearTimeout(idleTimer);
     untrack();
-    if (controller.signal.aborted) throw new Error("Prompt service stopped responding; this range will retry.");
+    if (controller.signal.aborted)
+      throw new Error("Prompt service stopped responding; this range will retry.");
     throw error;
   }
   if (!response.ok) {
-    throw new Error((await response.text().catch(() => "")) || `Prompt request failed (${response.status})`);
+    throw new Error(
+      (await response.text().catch(() => "")) || `Prompt request failed (${response.status})`,
+    );
   }
   if (!response.body) throw new Error("Prompt stream was unavailable");
 
@@ -257,7 +266,8 @@ async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> 
         `[client] prompts ${label} read error at ${Date.now() - t0}ms after ${events} events:`,
         error,
       );
-      if (controller.signal.aborted) throw new Error("Prompt service stopped responding; this range will retry.");
+      if (controller.signal.aborted)
+        throw new Error("Prompt service stopped responding; this range will retry.");
       throw error;
     }
     const { value, done } = chunk;
@@ -285,8 +295,6 @@ async function getPrompts(input: PromptRequest): Promise<{ prompts: string[] }> 
   );
   return { prompts: result };
 }
-
-
 
 function Index() {
   const analyze = useServerFn(analyzeScript);
@@ -421,7 +429,10 @@ function Index() {
   // Offer the latest checkpoint even before the original script is pasted again.
   useEffect(() => {
     let alive = true;
-    const lookup = script.trim().length >= 10 ? loadSaved(scriptKey(script)) : loadLatestRun<Shot>().then((x) => x?.run ?? null);
+    const lookup =
+      script.trim().length >= 10
+        ? loadSaved(scriptKey(script))
+        : loadLatestRun<Shot>().then((x) => x?.run ?? null);
     void lookup.then((saved) => {
       if (alive) setCanResume(!!saved && saved.shots.length > 0 && shots.length === 0);
     });
@@ -441,14 +452,18 @@ function Index() {
     if (!saved) return;
     const resumeScript = saved.script ?? script;
     if (!resumeScript.trim()) {
-      setError("This older checkpoint needs its original script pasted once before it can continue.");
+      setError(
+        "This older checkpoint needs its original script pasted once before it can continue.",
+      );
       return;
     }
     const recovered = recoverInterruptedShots(saved.shots);
     setScript(resumeScript);
     setBible(saved.bible);
     setShots(recovered);
-    setNote(`Continuing ${recovered.filter((s) => s.status === "done").length}/${recovered.length} completed panels…`);
+    setNote(
+      `Continuing ${recovered.filter((s) => s.status === "done").length}/${recovered.length} completed panels…`,
+    );
     await run(recovered, saved.bible, resumeScript);
   }
 
@@ -599,7 +614,9 @@ function Index() {
         for (let round = 0; round < 5; round++) {
           if (cancelRef.current) break;
           const missing = list.filter((s) => !hasPrompt(s.prompt));
-          console.log(`[client] repair round ${round + 1}: ${missing.length} lines still without a prompt`);
+          console.log(
+            `[client] repair round ${round + 1}: ${missing.length} lines still without a prompt`,
+          );
           if (missing.length === 0) break;
           // One line per request: a mixed, non-contiguous group is exactly how a
           // prompt written for another timestamp landed on this panel.
@@ -751,7 +768,9 @@ function Index() {
             );
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            console.error(`[client] worker ${me} batch failed after ${Date.now() - batchStart}ms: ${msg}`);
+            console.error(
+              `[client] worker ${me} batch failed after ${Date.now() - batchStart}ms: ${msg}`,
+            );
             group.forEach((g) => requeue(g, msg));
           } finally {
             inFlight--;
@@ -763,7 +782,6 @@ function Index() {
           );
           tick();
           persist();
-
         }
       };
 
@@ -928,7 +946,6 @@ function Index() {
       setRetrying((prev) => prev.filter((i) => i !== index));
     }
   }
-
 
   /* ---------------------------------------------------------------- */
   /* Video                                                             */
